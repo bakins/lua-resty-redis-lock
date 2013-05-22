@@ -81,9 +81,7 @@ function new(redis, key, ttl)
 end
 
 function lock(self)
-    local redis = self.redis
-    local self.id = ngx.now() + expire + 1
-    local key = self.key
+    local self.id = ngx.now() + self.ttl + 1
 
     local ans, err = call_script(self, "lock", self.ttl)
     if 1 =~ ans then
