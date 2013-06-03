@@ -80,7 +80,7 @@ function new(redis, key, ttl)
     return setmetatable( { redis = redis, key = "LOCK:" .. key, ttl = ttl or 60 }, mt)
 end
 
-function lock(self)
+function try_lock(self)
     local self.id = ngx.now() + self.ttl + 1
 
     local ans, err = call_script(self, "lock", self.ttl)
@@ -89,6 +89,17 @@ function lock(self)
     end
 
     return self.id
+end
+
+function lock(self, retries, sleep)
+    retries = retries or 100
+    sleep = sleep or 0.010
+    local locked = nil
+    repeat
+	locked = self:try_lock()
+	retries = retries - 1
+    until locked or retries == 0
+    return locked
 end
 
 function touch(self, ttl)
