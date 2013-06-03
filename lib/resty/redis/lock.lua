@@ -1,5 +1,10 @@
+--- Simple locking module using redis and ngx_lua
+-- @module resty.redis.lock
+
 local ngx = require 'ngx'
 
+-- I disdain module(), but that's the way the lua-resty stuff seems to always be done
+-- so why fight it
 module(...)
 
 _VERSION = '0.1.0'
@@ -76,10 +81,19 @@ local function call_script(self, ...)
     return ans
 end
 
+--- create a new redis lock.
+-- @tparam resty.redis redis a resty.redis object
+-- @tparam string key key to use for locking. The actual redis key will be this string prepended with "LOCK:"
+-- @tparam number ttl expiry time for the lock. default is 60 seconds
+-- @treturn resty.redis.lock a lock object
 function new(redis, key, ttl)
     return setmetatable( { redis = redis, key = "LOCK:" .. key, ttl = ttl or 60 }, mt)
 end
 
+-- try to obtain the lock
+-- @tparam resty.redis.lock self
+-- @treturn boolean lock results. Technically it returns a string on success and a nil on failure, but should be treated as a boolean
+-- @treturn string error, if applicable
 function try_lock(self)
     local self.id = ngx.now() + self.ttl + 1
 
@@ -91,18 +105,29 @@ function try_lock(self)
     return self.id
 end
 
+--- try to obtain the lock. Retry until lock is obtained or after a certain number of retries
+-- @tparam resty.redis.lock self
+-- @tparam number retries how many time to attempt to obtain the lock. default: 100
+-- @tparam number sleep how long to sleep between retries. default: 0.010 (10ms). With the defaults, the lock will be retried for 10 seconds
+-- @treturn boolean lock results. @see try_lock
+-- @treturn string error, if applicable
 function lock(self, retries, sleep)
     retries = retries or 100
     sleep = sleep or 0.010
-    local locked = nil
+    local locked, err = nil
     repeat
-	locked = self:try_lock()
+	locked, err = self:try_lock()
 	retries = retries - 1
 	ngx.sleep(sleep)
     until locked or retries == 0
-    return locked
+    return locked, err
 end
 
+--- "touch" the lock. If the lock is held, extend the expire time
+-- @tparam resty.redis.lock self
+-- @tparam number ttl how long to extend the lock for. default: value of ttl passed to `new`
+-- @treturn boolean success
+-- @treturn string error, if applicable
 function touch(self, ttl)
     ttl = ttl or self.ttl
     if not self.id then
@@ -115,6 +140,10 @@ function touch(self, ttl)
     return (ans == 1)
 end
 
+-- unock the lock
+-- @tparam resty.redis.lock self
+-- @treturn boolean if lock was successfully unlocked
+-- @treturn string error, if applicable
 function unlock(self)
     if not self.id then
 	return nil, "not locked"
