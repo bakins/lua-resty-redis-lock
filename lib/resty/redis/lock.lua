@@ -140,7 +140,7 @@ function touch(self, ttl)
     return (ans == 1)
 end
 
--- unock the lock
+--- unock the lock
 -- @tparam resty.redis.lock self
 -- @treturn boolean if lock was successfully unlocked
 -- @treturn string error, if applicable
