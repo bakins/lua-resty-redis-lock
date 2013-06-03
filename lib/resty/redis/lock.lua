@@ -98,6 +98,7 @@ function lock(self, retries, sleep)
     repeat
 	locked = self:try_lock()
 	retries = retries - 1
+	ngx.sleep(sleep)
     until locked or retries == 0
     return locked
 end
