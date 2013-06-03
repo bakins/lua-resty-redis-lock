@@ -1,0 +1,6 @@
+format = "discount"
+-- examples = "./examples/"
+dir = "./"
+title = "lua-resty-redis-lock reference"
+file = "./lib/resty"
+readme = "README.md"
