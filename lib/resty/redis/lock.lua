@@ -2,18 +2,19 @@
 -- @module resty.redis.lock
 
 local ngx = require 'ngx'
+local setmetatable = setmetatable
 
 -- I disdain module(), but that's the way the lua-resty stuff seems to always be done
 -- so why fight it
 module(...)
 
-_VERSION = '0.1.0'
+_VERSION = '0.1.2'
 
 local mt = { __index = _M }
 
 local scripts = {
     touch = {
-	script = [[
+        script = [[
 local val = redis.call('get', KEYS[1])
 if not val then
     return 0
@@ -24,11 +25,11 @@ if val == ARGV[1] then
 else
     return 0
 end
-]],
-	sha1 = nil
+        ]],
+        sha1 = nil
     },
     unlock = {
-	script = [[
+        script = [[
 local val = redis.call('get', KEYS[1])
 if not val then
     return 0
@@ -39,39 +40,41 @@ if val == ARGV[1] then
 else
     return 0
 end
-]],
-	sha1 = nil
+        ]],
+        sha1 = nil
     },
     lock = {
-	script = [[
+        script = [[
 local val = redis.call('setnx', KEYS[1], ARGV[1])
-if not val then
+if val == 0 then
     return 0
 end
 redis.call('expire', KEYS[1], ARGV[2])
 return 1
-]],
-	sha1 = nil
+        ]],
+        sha1 = nil
     }
 }
 
-local function call_script(self, ...)
+local function call_script(self, script_name, ...)
     local redis = self.redis
-    local script = scripts[key]
+    local script = scripts[script_name]
     if not script then
-	return nil, "invalid script"
+        return nil, "invalid script"
     end
+
     local sha1 = script.sha1
+    
     if not sha1 then
-	-- we could do the sha ourselves, but just be 100% sure that
-	-- it matches redis by letting redis tell us. Also, this will work
-	-- when LuaJit is not availible
-	local ans, err = redis:script("LOAD", script.script)
-	if not ans then
-	    nil, err
-	end
-	sha1 = ans
-	script.sha1 = sha1
+        -- we could do the sha ourselves, but just be 100% sure that
+        -- it matches redis by letting redis tell us. Also, this will work
+        -- when LuaJit is not availible
+        local ans, err = redis:script("LOAD", script.script)
+        if not ans then
+            return nil, err
+        end
+        sha1 = ans
+        script.sha1 = sha1
     end
 
     local ans, err = redis:evalsha(sha1, 1, self.key, self.id, ...)
@@ -95,11 +98,11 @@ end
 -- @treturn boolean lock results. Technically it returns a string on success and a nil on failure, but should be treated as a boolean
 -- @treturn string error, if applicable
 function try_lock(self)
-    local self.id = ngx.now() + self.ttl + 1
+    self.id = ngx.now() + self.ttl + 1
 
     local ans, err = call_script(self, "lock", self.ttl)
-    if 1 =~ ans then
-	self.id = nil
+    if 1 ~= ans then
+        self.id = nil
     end
 
     return self.id
@@ -113,12 +116,13 @@ end
 -- @treturn string error, if applicable
 function lock(self, retries, sleep)
     retries = retries or 100
-    sleep = sleep or 0.010
+    if retries < 1 then retries = 1 end
+        sleep = sleep or 0.010
     local locked, err = nil
     repeat
-	locked, err = self:try_lock()
-	retries = retries - 1
-	ngx.sleep(sleep)
+        locked, err = self:try_lock()
+        retries = retries - 1
+        ngx.sleep(sleep)
     until locked or retries == 0
     return locked, err
 end
@@ -131,8 +135,9 @@ end
 function touch(self, ttl)
     ttl = ttl or self.ttl
     if not self.id then
-	return nil, "not locked"
+        return nil, "not locked"
     end
+
     local ans, err = call_script(self, "touch", ttl)
     if not ans then
         return nil, err
@@ -146,13 +151,14 @@ end
 -- @treturn string error, if applicable
 function unlock(self)
     if not self.id then
-	return nil, "not locked"
+        return nil, "not locked"
     end
     local ans, err = call_script(self, "unlock")
     if not ans then
         return nil, err
     end
     self.id = nil
+    
     return (ans == 1)
 end
 
@@ -164,3 +170,4 @@ local class_mt = {
 }
 
 setmetatable(_M, class_mt)
+
